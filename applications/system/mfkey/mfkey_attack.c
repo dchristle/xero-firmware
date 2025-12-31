@@ -671,34 +671,33 @@ int calculate_msb_tables_optimized(
 
         // Check oks condition
         if (filter_semi_state == oks_bit) {
-            // Extended pre-filter: check rounds 1-3 using register-only bitmask
-            if (!prefilter_rounds_1_3(semi_state, oks)) continue;
+            if (prefilter_rounds_1_3(semi_state, oks)) {
+                states_buffer[0] = semi_state;
+                states_tail = state_loop(states_buffer, oks, CONST_M1_1, CONST_M2_1, 0, 0);
 
-            states_buffer[0] = semi_state;
-            states_tail = state_loop(states_buffer, oks, CONST_M1_1, CONST_M2_1, 0, 0);
+                for (int i = states_tail; i >= 0; i--) {
+                    msb = states_buffer[i] >> 24;
+                    if ((msb >= msb_head) && (msb < msb_tail)) {
+                        int msb_idx = msb - msb_head;
+                        uint32_t state = states_buffer[i];
 
-            for (int i = states_tail; i >= 0; i--) {
-                msb = states_buffer[i] >> 24;
-                if ((msb >= msb_head) && (msb < msb_tail)) {
-                    int msb_idx = msb - msb_head;
-                    uint32_t state = states_buffer[i];
+                        uint32_t fingerprint = (state * 2654435769u) >> 21;
+                        uint32_t filter_idx = (msb_idx << 6) | (fingerprint >> 5);
+                        uint32_t mask = 1U << (fingerprint & 31);
 
-                    uint32_t fingerprint = (state * 2654435769u) >> 21;
-                    uint32_t filter_idx = (msb_idx << 6) | (fingerprint >> 5);
-                    uint32_t mask = 1U << (fingerprint & 31);
+                        bool already_exists = false;
+                        if (odd_msb_filters[filter_idx] & mask) {
+                            already_exists = scan_for_duplicate_8x(
+                                odd_msbs[msb_idx].states,
+                                odd_msbs[msb_idx].tail,
+                                state & 0x00FFFFFF);
+                        }
 
-                    bool already_exists = false;
-                    if (odd_msb_filters[filter_idx] & mask) {
-                        already_exists = scan_for_duplicate_8x(
-                            odd_msbs[msb_idx].states,
-                            odd_msbs[msb_idx].tail,
-                            state & 0x00FFFFFF);
-                    }
-
-                    if (!already_exists && odd_msbs[msb_idx].tail < MSB_BUCKET_CAPACITY) {
-                        odd_msb_filters[filter_idx] |= mask;
-                        int tail = odd_msbs[msb_idx].tail++;
-                        memcpy(&odd_msbs[msb_idx].states[tail * 3], &state, 3);
+                        if (!already_exists && odd_msbs[msb_idx].tail < MSB_BUCKET_CAPACITY) {
+                            odd_msb_filters[filter_idx] |= mask;
+                            int tail = odd_msbs[msb_idx].tail++;
+                            memcpy(&odd_msbs[msb_idx].states[tail * 3], &state, 3);
+                        }
                     }
                 }
             }
@@ -706,34 +705,33 @@ int calculate_msb_tables_optimized(
 
         // Check eks condition
         if (filter_semi_state == eks_bit) {
-            // Extended pre-filter: check rounds 1-3 using register-only bitmask
-            if (!prefilter_rounds_1_3(semi_state, eks)) continue;
+            if (prefilter_rounds_1_3(semi_state, eks)) {
+                states_buffer[0] = semi_state;
+                states_tail = state_loop(states_buffer, eks, CONST_M1_2, CONST_M2_2, in, 3);
 
-            states_buffer[0] = semi_state;
-            states_tail = state_loop(states_buffer, eks, CONST_M1_2, CONST_M2_2, in, 3);
+                for (int i = 0; i <= states_tail; i++) {
+                    msb = states_buffer[i] >> 24;
+                    if ((msb >= msb_head) && (msb < msb_tail)) {
+                        int msb_idx = msb - msb_head;
+                        uint32_t state = states_buffer[i];
 
-            for (int i = 0; i <= states_tail; i++) {
-                msb = states_buffer[i] >> 24;
-                if ((msb >= msb_head) && (msb < msb_tail)) {
-                    int msb_idx = msb - msb_head;
-                    uint32_t state = states_buffer[i];
+                        uint32_t fingerprint = (state * 2654435769u) >> 21;
+                        uint32_t filter_idx = (msb_idx << 6) | (fingerprint >> 5);
+                        uint32_t mask = 1U << (fingerprint & 31);
 
-                    uint32_t fingerprint = (state * 2654435769u) >> 21;
-                    uint32_t filter_idx = (msb_idx << 6) | (fingerprint >> 5);
-                    uint32_t mask = 1U << (fingerprint & 31);
+                        bool already_exists = false;
+                        if (even_msb_filters[filter_idx] & mask) {
+                            already_exists = scan_for_duplicate_8x(
+                                even_msbs[msb_idx].states,
+                                even_msbs[msb_idx].tail,
+                                state & 0x00FFFFFF);
+                        }
 
-                    bool already_exists = false;
-                    if (even_msb_filters[filter_idx] & mask) {
-                        already_exists = scan_for_duplicate_8x(
-                            even_msbs[msb_idx].states,
-                            even_msbs[msb_idx].tail,
-                            state & 0x00FFFFFF);
-                    }
-
-                    if (!already_exists && even_msbs[msb_idx].tail < MSB_BUCKET_CAPACITY) {
-                        even_msb_filters[filter_idx] |= mask;
-                        int tail = even_msbs[msb_idx].tail++;
-                        memcpy(&even_msbs[msb_idx].states[tail * 3], &state, 3);
+                        if (!already_exists && even_msbs[msb_idx].tail < MSB_BUCKET_CAPACITY) {
+                            even_msb_filters[filter_idx] |= mask;
+                            int tail = even_msbs[msb_idx].tail++;
+                            memcpy(&even_msbs[msb_idx].states[tail * 3], &state, 3);
+                        }
                     }
                 }
             }
