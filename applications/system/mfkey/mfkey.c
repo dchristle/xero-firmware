@@ -18,7 +18,6 @@
 #include "mfkey_icons.h"
 #include <inttypes.h>
 #include <string.h>
-#include <stdarg.h>
 #include <toolbox/keys_dict.h>
 #include <bit_lib/bit_lib.h>
 #include <toolbox/stream/buffered_file_stream.h>

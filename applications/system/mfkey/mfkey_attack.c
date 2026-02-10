@@ -66,13 +66,10 @@ int calculate_msb_tables_optimized(
     memset(even_msbs, 0, MSB_LIMIT * sizeof(struct Msb));
 
     /* Bloom-style dedup using idle temp_states buffers as bitmask scratch */
-    #define DISABLE_IDENTITY_FILTER 0
-    #if !DISABLE_IDENTITY_FILTER
     uint32_t* odd_msb_filters = (uint32_t*)temp_states_odd;
     uint32_t* even_msb_filters = (uint32_t*)temp_states_even;
     memset(temp_states_odd, 0, 1024 * sizeof(unsigned int));
     memset(temp_states_even, 0, 1024 * sizeof(unsigned int));
-    #endif
 
     for (int batch_base = (1 << 20) & ~31; batch_base >= 0; batch_base -= 32) {
         OPT_BARRIER(oks);
@@ -121,12 +118,6 @@ int calculate_msb_tables_optimized(
                             int msb_idx = msb - msb_head;
                             uint32_t state = states_buffer[i];
 
-                            #if DISABLE_IDENTITY_FILTER
-                            if (odd_msbs[msb_idx].tail < MSB_BUCKET_CAPACITY) {
-                                int tail = odd_msbs[msb_idx].tail++;
-                                memcpy(&odd_msbs[msb_idx].states[tail * 3], &state, 3);
-                            }
-                            #else
                             uint32_t fingerprint = FIB_HASH_20BIT(state);
                             uint32_t filter_idx = (msb_idx << 6) | (fingerprint >> 5);
                             uint32_t mask = 1U << (fingerprint & 31);
@@ -144,7 +135,6 @@ int calculate_msb_tables_optimized(
                                 int tail = odd_msbs[msb_idx].tail++;
                                 memcpy(&odd_msbs[msb_idx].states[tail * 3], &state, 3);
                             }
-                            #endif
                         }
                     }
                 }
@@ -178,12 +168,6 @@ int calculate_msb_tables_optimized(
                             int msb_idx = msb - msb_head;
                             uint32_t state = states_buffer[i];
 
-                            #if DISABLE_IDENTITY_FILTER
-                            if (even_msbs[msb_idx].tail < MSB_BUCKET_CAPACITY) {
-                                int tail = even_msbs[msb_idx].tail++;
-                                memcpy(&even_msbs[msb_idx].states[tail * 3], &state, 3);
-                            }
-                            #else
                             uint32_t fingerprint = FIB_HASH_20BIT(state);
                             uint32_t filter_idx = (msb_idx << 6) | (fingerprint >> 5);
                             uint32_t mask = 1U << (fingerprint & 31);
@@ -201,7 +185,6 @@ int calculate_msb_tables_optimized(
                                 int tail = even_msbs[msb_idx].tail++;
                                 memcpy(&even_msbs[msb_idx].states[tail * 3], &state, 3);
                             }
-                            #endif
                         }
                     }
                 }
