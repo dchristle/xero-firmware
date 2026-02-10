@@ -2,9 +2,7 @@
 #define MFKEY_BATCH_PRELUDE_H
 
 #include <stdint.h>
-#ifndef HOST_BUILD
 #include "mfkey.h"
-#endif
 
 // Unified batch prelude: returns lane survival mask AND per-child leaf masks.
 // leaf_masks[c] (c=0..7) gives lanes where child c survives R0-R3+R4.

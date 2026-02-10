@@ -3,86 +3,9 @@
 
 #include <inttypes.h>
 
-#ifdef HOST_BUILD
-// Host build - minimal includes
-#include <stdint.h>
-#include <stdbool.h>
-
-// Crypto1 state for host build
-struct Crypto1State {
-    uint32_t odd;
-    uint32_t even;
-};
-
-// ProgramState for host build (minimal fields needed by mfkey_attack.c)
-typedef struct ProgramState {
-    int close_thread_please;
-    int num_candidates;
-    uint64_t *key_buffer;
-    uint32_t *key_idx_buffer;
-    int key_buffer_count;
-    int key_buffer_size;
-} ProgramState;
-
-// MfClassicNonce for host build
-typedef enum {
-    mfkey32,
-    static_nested,
-    static_encrypted,
-} MfClassicAttack;
-
-typedef struct {
-    uint32_t uid_xor_nt0;
-    uint32_t uid_xor_nt1;
-    uint32_t nr0_enc;
-    uint32_t ar0_enc;
-    uint32_t nr1_enc;
-    uint32_t ar1_enc;
-    uint32_t ks1_1_enc;
-    uint32_t nt0;
-    uint8_t par_1;
-    uint32_t p64;
-    uint32_t p64b;
-    uint64_t key;
-    uint32_t key_idx;
-    MfClassicAttack attack;
-} MfClassicNonce;
-
-// MSB bucket for host build
-#define MSB_BUCKET_CAPACITY 768
-struct Msb {
-    int tail;
-    uint8_t states[MSB_BUCKET_CAPACITY * 3 + 4];
-};
-
-// MfClassicKey type for host build (simplified to uint64_t)
-typedef uint64_t MfClassicKey;
-
-// crypto1_get_lfsr for host build
-static inline void crypto1_get_lfsr(struct Crypto1State* state, MfClassicKey* lfsr) {
-    int i;
-    uint64_t lfsr_value = 0;
-    for(i = 23; i >= 0; --i) {
-        lfsr_value = lfsr_value << 1 | ((state->odd >> (i ^ 3)) & 1);
-        lfsr_value = lfsr_value << 1 | ((state->even >> (i ^ 3)) & 1);
-    }
-    *lfsr = lfsr_value;
-}
-
-// nfc_util_even_parity8 stub
-static inline uint8_t nfc_util_even_parity8(uint8_t byte) {
-    byte ^= byte >> 4;
-    byte ^= byte >> 2;
-    byte ^= byte >> 1;
-    return byte & 1;
-}
-
-#else
-// Flipper build
 #include "mfkey.h"
 #include <nfc/helpers/nfc_util.h>
 #include <nfc/protocols/mf_classic/mf_classic.h>
-#endif
 
 #define LF_POLY_ODD (0x29CE5C)
 #define LF_POLY_EVEN (0x870804)

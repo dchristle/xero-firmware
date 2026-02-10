@@ -3,15 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef HOST_BUILD
-// Host build - no Flipper dependencies
-#include <stdint.h>
-#include <stdbool.h>
-#else
-// Flipper build
 #include <furi.h>
 #include "mfkey_attack.h"
-#endif
 
 #include "crypto1.h"
 #include "mfkey_bs_verify.h"

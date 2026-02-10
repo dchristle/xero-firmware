@@ -3,11 +3,7 @@
 
 /* 32-way SWAR bitsliced candidate verification */
 
-#ifdef HOST_BUILD
-#include "crypto1.h"
-#else
 #include "mfkey.h"
-#endif
 #include <stdint.h>
 #include <stdbool.h>
 

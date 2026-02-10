@@ -1,9 +1,7 @@
 #ifndef MFKEY_DEDUP_H
 #define MFKEY_DEDUP_H
 
-#ifndef HOST_BUILD
 #include "mfkey.h"
-#endif
 #include "crypto1.h"
 #include <stdint.h>
 #include <stdbool.h>

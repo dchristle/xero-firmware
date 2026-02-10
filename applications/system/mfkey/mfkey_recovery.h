@@ -1,9 +1,7 @@
 #ifndef MFKEY_RECOVERY_H
 #define MFKEY_RECOVERY_H
 
-#ifndef HOST_BUILD
 #include "mfkey.h"
-#endif
 #include "crypto1.h"
 
 // Scratch buffer for radix sort. Also reused as ping-pong buffer by
