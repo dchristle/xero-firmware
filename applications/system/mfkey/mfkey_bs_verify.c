@@ -1,5 +1,4 @@
-// 32-way parallel LFSR verification using SWAR (SIMD Within A Register).
-// Each bit position in a uint32_t represents one parallel lane.
+/* 32-way SWAR bitsliced LFSR verification */
 
 #pragma GCC optimize("O3")
 
@@ -7,7 +6,8 @@
 #include "crypto1.h"
 #include <string.h>
 
-// Bitsliced filter function (minimized sum-of-products form)
+/* Bitsliced filter function (minimized SOP) */
+
 static inline __attribute__((always_inline))
 uint32_t crypto1_lut_a(uint32_t d, uint32_t c, uint32_t b, uint32_t a) {
     return (c & d) | (a & c & ~b) | (a & d & ~b) | (b & ~c & ~d);
@@ -34,7 +34,7 @@ uint32_t crypto1_bs_filter(const uint32_t* odd, uint32_t head) {
     return res;
 }
 
-// Polynomial tap XOR functions
+
 static inline __attribute__((always_inline))
 uint32_t crypto1_bs_xor_taps_odd(const uint32_t* reg, uint32_t head) {
     const uint32_t* p = reg + head;
@@ -59,7 +59,7 @@ uint32_t poly_even_rollback_xor(const uint32_t* even, uint32_t head) {
     return p[2] ^ p[11] ^ p[16] ^ p[17] ^ p[18];
 }
 
-// 32x32 butterfly transpose (scalar to bitsliced conversion)
+
 static inline __attribute__((always_inline)) void transpose_32x32(uint32_t* d) {
     uint32_t t, r0, r1, r2, r3, r4, r5, r6, r7;
 
@@ -107,6 +107,8 @@ static inline __attribute__((always_inline)) void transpose_32x32(uint32_t* d) {
     }
 }
 
+/* Transpose scalar states into bitsliced layout */
+
 static inline __attribute__((always_inline)) void bs_init_from_candidates(
     Crypto1BitSlice* bs,
     const BsCandidateBatch* batch)
@@ -141,7 +143,8 @@ static inline __attribute__((always_inline)) void bs_init_from_candidates(
     }
 }
 
-// Bitsliced rollback with keystream collection
+/* Bitsliced rollback with keystream collection */
+
 static inline __attribute__((always_inline)) void bs_rollback_word_collect_ks(
     Crypto1BitSlice* bs,
     uint32_t in,
@@ -279,7 +282,8 @@ static inline __attribute__((always_inline)) void bs_rollback_word_noret(
     bs->even_head = eh;
 }
 
-// Bitsliced forward crypt
+/* Bitsliced forward LFSR operation */
+
 static inline __attribute__((always_inline)) void bs_crypt_word_noret(
     Crypto1BitSlice* bs,
     uint32_t in,
@@ -358,6 +362,7 @@ static inline __attribute__((always_inline)) void bs_crypt_word_collect_ks(
     bs->even_head = eh;
 }
 
+
 static inline __attribute__((always_inline)) uint32_t bs_compare_ks(
     const uint32_t ks_bits[32],
     uint32_t expected)
@@ -372,7 +377,8 @@ static inline __attribute__((always_inline)) uint32_t bs_compare_ks(
     return valid;
 }
 
-// Main verification kernel - returns bitmask of valid lanes
+/* Main verification kernel: verify batch of 32 candidates in parallel */
+
 uint32_t bs_verify_batch_32(
     const BsCandidateBatch* batch,
     MfClassicNonce* nonce)
@@ -386,7 +392,7 @@ uint32_t bs_verify_batch_32(
 
     uint32_t ks_bits[32];
 
-    // === STEP 1: First nonce verification ===
+    /* Nonce 0 verification */
     bs_rollback_word_collect_ks(&bs, 0, 0, ks_bits);
 
     uint32_t expected1 = nonce->ar0_enc ^ nonce->p64;
@@ -409,19 +415,19 @@ uint32_t bs_verify_batch_32(
         return 0;
     }
 
-    // === STEP 2: Rollback nr0_enc (fb=1) ===
+    /* Rollback nr0_enc */
     bs_rollback_word_noret(&bs, nonce->nr0_enc, 0xFFFFFFFF);
 
-    // === STEP 3: Rollback uid_xor_nt0 (fb=0) ===
+    /* Rollback uid^nt0 */
     bs_rollback_word_noret(&bs, nonce->uid_xor_nt0, 0);
 
-    // === STEP 4: Forward crypt uid_xor_nt1 (fb=0) ===
+    /* Forward uid^nt1 */
     bs_crypt_word_noret(&bs, nonce->uid_xor_nt1, 0);
 
-    // === STEP 5: Forward crypt nr1_enc (fb=1) ===
+    /* Forward nr1_enc */
     bs_crypt_word_noret(&bs, nonce->nr1_enc, 0xFFFFFFFF);
 
-    // === STEP 6: Final crypt to get keystream ===
+    /* Collect nonce 1 keystream */
     bs_crypt_word_collect_ks(&bs, ks_bits);
 
     uint32_t expected2 = nonce->ar1_enc ^ nonce->p64b;
@@ -429,6 +435,8 @@ uint32_t bs_verify_batch_32(
 
     return valid;
 }
+
+/* Extract 48-bit key from verified bitsliced state */
 
 void bs_extract_key(
     const BsCandidateBatch* batch,

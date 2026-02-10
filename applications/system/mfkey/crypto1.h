@@ -2,9 +2,87 @@
 #define CRYPTO1_H
 
 #include <inttypes.h>
+
+#ifdef HOST_BUILD
+// Host build - minimal includes
+#include <stdint.h>
+#include <stdbool.h>
+
+// Crypto1 state for host build
+struct Crypto1State {
+    uint32_t odd;
+    uint32_t even;
+};
+
+// ProgramState for host build (minimal fields needed by mfkey_attack.c)
+typedef struct ProgramState {
+    int close_thread_please;
+    int num_candidates;
+    uint64_t *key_buffer;
+    uint32_t *key_idx_buffer;
+    int key_buffer_count;
+    int key_buffer_size;
+} ProgramState;
+
+// MfClassicNonce for host build
+typedef enum {
+    mfkey32,
+    static_nested,
+    static_encrypted,
+} MfClassicAttack;
+
+typedef struct {
+    uint32_t uid_xor_nt0;
+    uint32_t uid_xor_nt1;
+    uint32_t nr0_enc;
+    uint32_t ar0_enc;
+    uint32_t nr1_enc;
+    uint32_t ar1_enc;
+    uint32_t ks1_1_enc;
+    uint32_t nt0;
+    uint8_t par_1;
+    uint32_t p64;
+    uint32_t p64b;
+    uint64_t key;
+    uint32_t key_idx;
+    MfClassicAttack attack;
+} MfClassicNonce;
+
+// MSB bucket for host build
+#define MSB_BUCKET_CAPACITY 768
+struct Msb {
+    int tail;
+    uint8_t states[MSB_BUCKET_CAPACITY * 3 + 4];
+};
+
+// MfClassicKey type for host build (simplified to uint64_t)
+typedef uint64_t MfClassicKey;
+
+// crypto1_get_lfsr for host build
+static inline void crypto1_get_lfsr(struct Crypto1State* state, MfClassicKey* lfsr) {
+    int i;
+    uint64_t lfsr_value = 0;
+    for(i = 23; i >= 0; --i) {
+        lfsr_value = lfsr_value << 1 | ((state->odd >> (i ^ 3)) & 1);
+        lfsr_value = lfsr_value << 1 | ((state->even >> (i ^ 3)) & 1);
+    }
+    *lfsr = lfsr_value;
+}
+
+// nfc_util_even_parity8 stub
+static inline uint8_t nfc_util_even_parity8(uint8_t byte) {
+    byte ^= byte >> 4;
+    byte ^= byte >> 2;
+    byte ^= byte >> 1;
+    return byte & 1;
+}
+
+#else
+// Flipper build
 #include "mfkey.h"
 #include <nfc/helpers/nfc_util.h>
 #include <nfc/protocols/mf_classic/mf_classic.h>
+#endif
 
 #define LF_POLY_ODD (0x29CE5C)
 #define LF_POLY_EVEN (0x870804)
@@ -19,6 +97,7 @@
 #define BEBIT(x, n) BIT(x, (n) ^ 24)
 #define SWAPENDIAN(x) \
 	((x) = ((x) >> 8 & 0xff00ff) | ((x) & 0xff00ff) << 8, (x) = (x) >> 16 | (x) << 16)
+#define OPT_BARRIER(x) __asm__ volatile ("" : "+r" (x))
 
 static inline uint32_t prng_successor(uint32_t x, uint32_t n);
 static inline int filter(uint32_t const x);
@@ -69,44 +148,77 @@ static inline __attribute__((always_inline)) int filter(uint32_t const x)
 	return BIT(0xEC57E80A, f);
 }
 
-// Optimized: compute filter(v) and filter(v|1) with shared work
-// Returns packed (f1 << 1 | f0) to avoid pointer overhead
+/* Compute filter(v) and filter(v|1) with shared lookup work.
+ * Returns packed result: bit 0 = f(v), bit 1 = f(v|1). */
 static inline __attribute__((always_inline)) uint32_t filter_pair(uint32_t v)
 {
-	// Shared indices (v|1 only changes bit 0)
 	uint32_t idx_hi = (v >> 8) & 0xff;
 	uint32_t idx_nib = (v >> 16) & 0xf;
-
-	// Shared lookups and computation
 	uint8_t l2 = lookup2[idx_hi];
 	uint32_t nib_bit = (0x0d938 >> idx_nib) & 1;
 	uint32_t shared = l2 | nib_bit;
 
-	// lookup1 differs only in bit 0
 	uint32_t idx0_lo = v & 0xff;
 	uint8_t l1_0 = lookup1[idx0_lo];
 	uint8_t l1_1 = lookup1[idx0_lo | 1];
 
-	// Compute both filters
 	int f0 = BIT(0xEC57E80A, l1_0 | shared);
 	int f1 = BIT(0xEC57E80A, l1_1 | shared);
-
-	// Pack: bit 0 = f0, bit 1 = f1
 	return (uint32_t)f0 | ((uint32_t)f1 << 1);
 }
 
-// Unpack macros for filter_pair result
+/* filter_pair with pre-XOR'd filter constant, folding xks_bit into the lookup */
+static inline __attribute__((always_inline)) uint32_t filter_pair_xor(uint32_t v, uint32_t adj_filter)
+{
+	uint32_t idx_hi = (v >> 8) & 0xff;
+	uint32_t idx_nib = (v >> 16) & 0xf;
+	uint8_t l2 = lookup2[idx_hi];
+	uint32_t nib_bit = (0x0d938 >> idx_nib) & 1;
+	uint32_t shared = l2 | nib_bit;
+	uint32_t idx0_lo = v & 0xff;
+	uint8_t l1_0 = lookup1[idx0_lo];
+	uint8_t l1_1 = lookup1[idx0_lo | 1];
+	int f0 = BIT(adj_filter, l1_0 | shared);
+	int f1 = BIT(adj_filter, l1_1 | shared);
+	return (uint32_t)f0 | ((uint32_t)f1 << 1);
+}
+
 #define FILTER_F0(fp) ((fp) & 1)
 #define FILTER_F1(fp) (((fp) >> 1) & 1)
 
+/* filter_pair with precomputed nibble bit (avoids redundant shift/mask) */
+static inline __attribute__((always_inline)) uint32_t filter_pair_with_nib(uint32_t v, uint32_t nib_bit)
+{
+	uint32_t idx_hi = (v >> 8) & 0xff;
+	uint8_t l2 = lookup2[idx_hi];
+	uint32_t shared = l2 | nib_bit;
+
+	uint32_t idx0_lo = v & 0xff;
+	uint8_t l1_0 = lookup1[idx0_lo];
+	uint8_t l1_1 = lookup1[idx0_lo | 1];
+
+	int f0 = BIT(0xEC57E80A, l1_0 | shared);
+	int f1 = BIT(0xEC57E80A, l1_1 | shared);
+	return (uint32_t)f0 | ((uint32_t)f1 << 1);
+}
+
+/* Register-based parity update (avoids array access overhead) */
+static inline __attribute__((always_inline)) uint32_t update_contribution_reg(uint32_t v, int mask1, int mask2)
+{
+	uint32_t p = v >> 25;
+	p = (p << 1) | evenparity32(v & mask1);
+	p = (p << 1) | evenparity32(v & mask2);
+	return (p << 24) | (v & 0xffffff);
+}
+
 static inline __attribute__((always_inline)) uint8_t evenparity32(uint32_t x)
 {
-	// fold 32 bits -> 16 -> 8 -> 4
 	x ^= x >> 16;
 	x ^= x >> 8;
 	x ^= x >> 4;
-	// magic 0x6996: bit i tells you parity of i (0 ≤ i < 16)
-	return (uint8_t)((0x6996u >> (x & 0xF)) & 1);
+	x ^= x >> 2;
+	x ^= x >> 1;
+	return (uint8_t)(x & 1);
 }
 
 static inline __attribute__((always_inline)) void update_contribution(unsigned int data[], int item, int mask1, int mask2)

@@ -17,11 +17,14 @@
 #include <gui/elements.h>
 #include "mfkey_icons.h"
 #include <inttypes.h>
+#include <string.h>
+#include <stdarg.h>
 #include <toolbox/keys_dict.h>
 #include <bit_lib/bit_lib.h>
 #include <toolbox/stream/buffered_file_stream.h>
 #include <dolphin/dolphin.h>
 #include <notification/notification_messages.h>
+#include <storage/storage.h>
 #include <nfc/protocols/mf_classic/mf_classic.h>
 #include "mfkey.h"
 #include "crypto1.h"
@@ -42,6 +45,7 @@
 
 #define LF_POLY_ODD (0x29CE5C)
 #define LF_POLY_EVEN (0x870804)
+
 #define CONST_M1_1 (LF_POLY_EVEN << 1 | 1)
 #define CONST_M2_1 (LF_POLY_ODD << 1)
 #define CONST_M1_2 (LF_POLY_ODD)
@@ -59,18 +63,20 @@
 	((x) = ((x) >> 8 & 0xff00ff) | ((x) & 0xff00ff) << 8, (x) = (x) >> 16 | (x) << 16)
 // #define SIZEOF(arr) sizeof(arr) / sizeof(*arr)
 
+// Reduced to 16-bit as these values are small and don't need 32-bit
 static int16_t eta_round_time = 44;
 static int16_t eta_total_time = 705;
+// MSB_LIMIT: Chunk size (out of 256) - can be 8-bit as it's a small value
+// Not static - referenced by mfkey_attack.c
 uint8_t MSB_LIMIT = 16;
 
+// Not static - referenced by mfkey_attack.c for static_encrypted attacks
 void flush_key_buffer(ProgramState *program_state)
 {
 	if (program_state->key_buffer && program_state->key_buffer_count > 0 && program_state->cuid_dict)
 	{
 		// Pre-allocate exact size needed: 2 hex chars (key_idx) + 12 hex chars (key) + 1 newline per key
 		size_t total_size = program_state->key_buffer_count * 15;
-		//FURI_LOG_I(TAG, "Flushing key buffer: %d keys", program_state->key_buffer_count);
-		//FURI_LOG_I(TAG, "Total size: %d bytes", total_size);
 		char* batch_buffer = malloc(total_size + 1); // +1 for null terminator
 
 		char* ptr = batch_buffer;
@@ -182,10 +188,10 @@ bool recover(MfClassicNonce *n, int ks2, unsigned int in, ProgramState *program_
 {
 	bool found = false;
 	// Packed 24-bit Msb format: 16 buckets × 2312 bytes each = 36992
-	// states_buffer needs 1280 elements × 4 bytes = 5120 (matches state_loop limit of 1270)
-	const size_t block_sizes[] = {36992, 36992, 5120, 5120, 5120};
+	// states_buffer needs 1024 elements × 4 bytes = 4096
+	const size_t block_sizes[] = {36992, 36992, 5120, 5120, 4096};
 	// Reduced: 8 buckets × 2312 bytes each = 18496
-	const size_t reduced_block_sizes[] = {18496, 18496, 5120, 5120, 5120};
+	const size_t reduced_block_sizes[] = {18496, 18496, 5120, 5120, 4096};
 	const int num_blocks = sizeof(block_sizes) / sizeof(block_sizes[0]);
 	// Reset globals each nonce
 	eta_round_time = 44;
@@ -310,8 +316,6 @@ bool recover(MfClassicNonce *n, int ks2, unsigned int in, ProgramState *program_
 				in,
 				program_state))
 		{
-			// int bench_stop = furi_hal_rtc_get_timestamp();
-			// FURI_LOG_I(TAG, "Cracked in %i seconds", bench_stop - bench_start);
 			found = true;
 			break;
 		}
@@ -402,7 +406,6 @@ void mfkey(ProgramState *program_state)
 	}
 
 	uint32_t i = 0, j = 0;
-	// FURI_LOG_I(TAG, "Free heap before alloc(): %zub", memmgr_get_free_heap());
 	Storage *storage = furi_record_open(RECORD_STORAGE);
 	FlipperApplication *app = flipper_application_alloc(storage, firmware_api_interface);
 	flipper_application_preload(app, APP_ASSETS_PATH("plugins/mfkey_init_plugin.fal"));
@@ -470,7 +473,6 @@ void mfkey(ProgramState *program_state)
 	// TODO: Already closed?
 	buffered_file_stream_close(nonce_arr->stream);
 	stream_free(nonce_arr->stream);
-	// FURI_LOG_I(TAG, "Free heap after free(): %zub", memmgr_get_free_heap());
 	program_state->mfkey_state = MFKeyAttack;
 	// TODO: Work backwards on this array and free memory
 	for (i = 0; i < nonce_arr->total_nonces; i++)
@@ -483,7 +485,6 @@ void mfkey(ProgramState *program_state)
 			(program_state->num_completed)++;
 			continue;
 		}
-		// FURI_LOG_I(TAG, "Beginning recovery for %8lx", next_nonce.uid);
 		FuriString *cuid_dict_path;
 		switch (next_nonce.attack)
 		{
@@ -572,10 +573,8 @@ void mfkey(ProgramState *program_state)
 	}
 	// TODO: Update display to show all keys were found
 	// TODO: Prepend found key(s) to user dictionary file
-	// FURI_LOG_I(TAG, "Unique keys found:");
 	for (i = 0; i < keyarray_size; i++)
 	{
-		// FURI_LOG_I(TAG, "%012" PRIx64, keyarray[i]);
 		keys_dict_add_key(user_dict, keyarray[i].data, sizeof(MfClassicKey));
 	}
 	if (keyarray_size > 0)
@@ -589,7 +588,6 @@ void mfkey(ProgramState *program_state)
 	{
 		return;
 	}
-	// FURI_LOG_I(TAG, "mfkey function completed normally"); // DEBUG
 	program_state->mfkey_state = Complete;
 	// No need to alert the user if they asked it to stop
 	if (!(program_state->close_thread_please))

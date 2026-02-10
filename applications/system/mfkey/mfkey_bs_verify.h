@@ -1,9 +1,13 @@
 #ifndef MFKEY_BS_VERIFY_H
 #define MFKEY_BS_VERIFY_H
 
-// 32-way parallel LFSR verification using SWAR (SIMD Within A Register)
+/* 32-way SWAR bitsliced candidate verification */
 
+#ifdef HOST_BUILD
+#include "crypto1.h"
+#else
 #include "mfkey.h"
+#endif
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -15,8 +19,12 @@ typedef struct {
     int count;
 } BsCandidateBatch;
 
+/*
+ * Bitsliced LFSR state: 24 bits mirrored to 72 elements (3x runway)
+ * so head + max_tap_offset never overflows.
+ */
 typedef struct {
-    uint32_t odd[72];   // 24 LFSR bits mirrored 3x for runway
+    uint32_t odd[72];
     uint32_t even[72];
     uint32_t odd_head;
     uint32_t even_head;
@@ -26,6 +34,7 @@ static inline void bs_batch_init(BsCandidateBatch* batch) {
     batch->count = 0;
 }
 
+/* Returns true when batch is full and ready for verification */
 static inline bool bs_batch_add(BsCandidateBatch* batch, uint32_t odd, uint32_t even) {
     if (batch->count < BS_BATCH_SIZE) {
         batch->odd[batch->count] = odd;
@@ -35,10 +44,12 @@ static inline bool bs_batch_add(BsCandidateBatch* batch, uint32_t odd, uint32_t 
     return batch->count >= BS_BATCH_SIZE;
 }
 
+/* Returns bitmask of valid candidates (bit per lane) */
 uint32_t bs_verify_batch_32(
     const BsCandidateBatch* batch,
     MfClassicNonce* nonce);
 
+/* Extract 48-bit key from a valid lane */
 void bs_extract_key(
     const BsCandidateBatch* batch,
     int lane,

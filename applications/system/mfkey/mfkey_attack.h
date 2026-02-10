@@ -3,6 +3,7 @@
 
 #include "mfkey.h"
 
+/* Run attack for one MSB round. Returns 1 if key found. */
 int calculate_msb_tables_optimized(
     int oks,
     int eks,
